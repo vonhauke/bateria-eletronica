@@ -287,7 +287,7 @@ const DEF = {
   volume:.6, seqTempo:.4, seqGate:.6
 };
 const DEF_T = {osc3k:true, oscMod:false, filtMod:false, kb1:true, kb2:true,
-  on1:true, on2:true, on3:true, onN:false, mainOut:true, a440:false, power:true, glideOn:false, decayOn:true};
+  on1:true, on2:true, on3:true, onN:false, mainOut:true, a440:false, power:true, glideOn:false, decayOn:true, hold:false};
 const DEF_SW = {modA:'osc3', modB:'lfo', noise:'white'};
 const SW_OPTS = {modA:['osc3','feg'], modB:['noise','lfo'], noise:['white','pink']};
 const STEPS = {r1:6, w1:6, r2:6, w2:6, r3:6, w3:6};
@@ -331,6 +331,7 @@ try {
   }
 } catch (e) {}
 if (!st.seq) st.seq = cleanSeq(null);
+st.t.hold = false;                                        // o Hold nunca volta ligado
 let saveTimer = null;
 function save(){
   clearTimeout(saveTimer);
@@ -524,6 +525,7 @@ function applyT(id){
     case 'mainOut': smooth(V.mainSw.gain, st.t.mainOut ? 1 : 0); break;
     case 'power': smooth(V.master.gain, st.t.power ? 1 : 0); break;
     case 'a440': smooth(V.a440g.gain, st.t.a440 ? .25 : 0); break;
+    case 'hold': if (!st.t.hold && held) { held = false; envOff(ctx.currentTime); } break;   // desligar o Hold solta a nota presa
   }
 }
 function applySw(id){
@@ -572,12 +574,15 @@ function envOff(t){
 const phys = new Map();   // tecla física → nota
 const stack = [];         // notas seguradas, a última tem prioridade
 const keyEls = {};
+let held = false;         // Hold: a nota segue soando depois de soltar a tecla, até outra ser tocada
+const keyActive = () => stack.length > 0 || held;
 
 function keyDown(key){
   ensureAudio();
   if (phys.has(key)) return;
   phys.set(key, key); markKey(key, true);
-  const now = ctx.currentTime + 0.005, legato = stack.length > 0;
+  const now = ctx.currentTime + 0.005, legato = keyActive();
+  held = false;
   stack.push(key);
   setPitch(key, now, true);
   if (!legato) envOn(now);
@@ -589,6 +594,7 @@ function keyUp(key){
   const now = ctx.currentTime + 0.005;
   const i = stack.lastIndexOf(key), wasTop = i === stack.length - 1;
   if (i >= 0) stack.splice(i, 1);
+  if (st.t.hold) { if (!stack.length) held = true; return; }
   if (stack.length) { if (wasTop) setPitch(stack[stack.length - 1], now, true); }
   else envOff(now);
 }
@@ -796,6 +802,7 @@ const powerLed = div('led');
 makeKnob($('c-lfo'), 'lfoRate', 'LFO rate', {fmt:v => num(lfoHz(v), lfoHz(v) < 10 ? 1 : 0) + ' Hz'});
 makeRocker($('c-btns'), 'glideOn', 'Glide', 'cream');
 makeRocker($('c-btns'), 'decayOn', 'Decay', 'cream');
+makeRocker($('c-btns'), 'hold', 'Hold', 'cream');
 updateOverload();
 
 /* ---------- rodas ---------- */
@@ -871,7 +878,7 @@ function seqNote(note, t, off){
 }
 function seqStep(i, t){
   const n = st.seq.steps[i];
-  if (n === null || stack.length) return;                 // passo vazio, ou tecla segurada: a tecla manda
+  if (n === null || keyActive()) return;                // passo vazio, ou tecla segurada: a tecla manda
   const note = Math.max(12, Math.min(120, n + 12 * st.seq.oct));
   seqNote(note, t, t + seqStepDur() * (0.1 + st.v.seqGate * 0.9));
 }
@@ -897,7 +904,7 @@ function seqPlay(){
 function seqStop(){
   if (!seqPlaying) return;
   seqPlaying = false; seqQueue.length = 0;
-  if (ctx && !stack.length) envOff(ctx.currentTime);       // corta o que já estava agendado
+  if (ctx && !keyActive()) envOff(ctx.currentTime);      // corta o que já estava agendado
   setSeqNow(-1); renderPlay();
 }
 function seqDraw(){
@@ -909,7 +916,7 @@ function seqDraw(){
 }
 function seqPreview(note){
   ensureAudio();
-  if (stack.length) return;
+  if (keyActive()) return;
   const t = ctx.currentTime + 0.01;
   seqNote(note, t, t + 0.28);
 }
