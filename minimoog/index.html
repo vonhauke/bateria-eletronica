@@ -625,6 +625,7 @@ const WAVE_NAMES = ['Triangular','Dente de tubarão','Dente de serra','Quadrada'
 const RANGE_NAMES = ['LO','32′','16′','8′','4′','2′'];
 
 let knobUid = 0;
+const renders = [];                                       // redesenham knobs, chaves e botões após um reset
 function makeKnob(parent, id, label, o = {}){
   const steps = STEPS[id] || 0;
   const scale = o.scale || (steps ? RANGE_NAMES : ['0','2','4','6','8','10']);
@@ -663,6 +664,7 @@ function makeKnob(parent, id, label, o = {}){
     if (v === st.v[id]) return;
     st.v[id] = v; render(); applyV(id); updateOverload(); save();
   };
+  renders.push(render);
   attachDrag(el, () => st.v[id], set, steps ? 1 / (steps - 1) : 0);
   el.addEventListener('dblclick', () => set(DEF[id]));
   render();
@@ -676,6 +678,7 @@ function makeRocker(parent, id, label, cls = '', text = 'On'){
   b.innerHTML = '<span class="cap"></span>' + (text ? `<span>${text}</span>` : '');
   b.setAttribute('aria-label', label || id);
   const render = () => b.setAttribute('aria-pressed', st.t[id]);
+  renders.push(render);
   b.addEventListener('click', () => {
     ensureAudio(); st.t[id] = !st.t[id]; render(); applyT(id); updateOverload(); onToggle(id); save();
   });
@@ -697,6 +700,7 @@ function makeSw(parent, id, caption){
     b.textContent = SW_LABELS[id][opt]; box.append(b); return b;
   });
   const render = () => btns.forEach(b => { const on = b.dataset.opt === st.sw[id]; b.setAttribute('aria-checked', on); b.tabIndex = on ? 0 : -1; });
+  renders.push(render);
   const set = opt => { if (st.sw[id] === opt) return; st.sw[id] = opt; render(); applySw(id); save(); };
   box.addEventListener('click', e => { const b = e.target.closest('button'); if (b) { ensureAudio(); set(b.dataset.opt); } });
   box.addEventListener('keydown', e => {
@@ -833,6 +837,26 @@ const wheelsBox = $('c-wheels');
 var pitchEl = makeWheel(wheelsBox, 'Pitch', 'Roda de pitch', true, f => setBend(f * 2 - 1), () => setBend(0), d => setBend(bendVal + d * .25));
 var modEl = makeWheel(wheelsBox, 'Mod.', 'Roda de modulação', false, f => setMod(f), null, d => setMod(st.v.modWheel + d * .05));
 setBend(0); setMod(st.v.modWheel);
+
+/* ---------- zerar configuração: volta knobs, chaves e rodas ao padrão (o sequenciador não muda) ---------- */
+function resetPanel(){
+  Object.assign(st.v, DEF); Object.assign(st.t, DEF_T); Object.assign(st.sw, DEF_SW);
+  renders.forEach(r => r());
+  for (const k in DEF) applyV(k);
+  for (const k in DEF_T) applyT(k);
+  for (const k in DEF_SW) applySw(k);
+  applyMod(); applyDetune(); applyLevels();
+  setBend(0); setMod(DEF.modWheel);
+  powerLed.classList.toggle('on', st.t.power);
+  updateOverload(); save();
+}
+{
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'sbtn'; b.id = 'reset-panel'; b.textContent = 'Zerar configuração';
+  b.setAttribute('aria-label', 'Zerar configuração: volta todas as regulagens ao padrão');
+  b.addEventListener('click', () => { ensureAudio(); resetPanel(); });
+  wheelsBox.parentNode.append(b);
+}
 
 /* ---------- sequenciador (uma nota por passo; a tecla segurada tem prioridade) ---------- */
 const SEQ_ROWS = 25;
